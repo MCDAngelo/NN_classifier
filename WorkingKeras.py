@@ -6,8 +6,9 @@ from keras.utils import np_utils
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from keras.callbacks import TensorBoard
-from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score, precision_recall_fscore_support
+from sklearn.metrics import confusion_matrix, f1_score, precision_recall_fscore_support
 from keras import backend as K
+import sys
 
 # From https://github.com/fchollet/keras/issues/5400
 def f1_score2(y_true, y_pred):
@@ -76,10 +77,11 @@ df['cat2'] = df['category'] + '1'
 print("------First few values of df-------")
 print(df.head(5))
 
-
+## Separate features and labels and convert to numpy NDFrame
 X = df.loc[:,'V1':'V100'].values
 Y = df.loc[:,'category'].values
 
+## Create encoder to transform string labels to one-hot encoded vectors
 encoder = LabelEncoder()
 encoder.fit(Y)
 print(Y)
@@ -88,43 +90,50 @@ print(encoded_Y)
 dummy_y = np_utils.to_categorical(encoded_Y)
 print(dummy_y)
 
-X_train, X_test, y_train, y_test = train_test_split(X, dummy_y, test_size = 0.20, random_state=42)
+## Split data into training and test sets (test will actually be validation set)
+X_train, X_test, Y_train, Y_test = train_test_split(X, dummy_y, test_size = 0.20, random_state=42)
 
-print(X_train.shape, y_train.shape)
-print(X_test.shape, y_test.shape)
+print("------Shape of training data-------")
+print(X_train.shape, Y_train.shape)
+print("------Shape of test data-------")
+print(X_test.shape, Y_test.shape)
 
+n_categories = np.unique(Y).size
+
+## Log for tensorboard
 logTensorboard = TensorBoard(log_dir='./tmp/', histogram_freq=0, write_graph=True, write_images=False)
 
-def baseline_model():
+## Function to create and fit model
+def create_model(x_train, y_train, h1_size, h2_size, n_cats):
     ## Create model
     model = Sequential()
-    model.add(Dense(128, input_dim=X_train.shape[1], kernel_initializer='normal', activation='relu'))
+    model.add(Dense(h1_size, input_dim=x_train.shape[1], kernel_initializer='normal', activation='relu'))
     model.add(Dropout(0.5))
-    model.add(Dense(128, kernel_initializer='normal', activation='relu'))
+    model.add(Dense(h2_size, kernel_initializer='normal', activation='relu'))
     model.add(Dropout(0.5))
-    model.add(Dense(4, kernel_initializer='normal', activation='softmax'))
+    model.add(Dense(n_cats, kernel_initializer='normal', activation='softmax'))
     ## Compile model
     model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy', f1])
-    model.fit(X_train, y_train, epochs=50, verbose=2, batch_size=10, validation_split=0.33, callbacks=[logTensorboard])
+    model.fit(x_train, y_train, epochs=50, verbose=2, batch_size=10, validation_split=0.33, callbacks=[logTensorboard])
     return model
 
-model = baseline_model()
+model = create_model(X_train, Y_train, h1_size=128, h2_size=128, n_cats=n_categories)
 
-scores = model.evaluate(X_test, y_test)
-print("\n%s: %.2f%%" % (model.metrics_names[1], scores[1]*100))
-print(scores)
 
-y_test_cat = np.argmax(np_utils.to_categorical(y_test), axis=1)[:,1]
-y_pred = model.predict_classes(X_test)
-print(y_test)
-print(y_test_cat)
-print(y_pred)
-print("Micro F Score: ", f1_score(y_test_cat, y_pred, average='micro'))
-print("Macro F Score: ", f1_score(y_test_cat, y_pred, average='macro'))
-print("Weighted F Score: ", f1_score(y_test_cat, y_pred, average='weighted'))
+def evaluate_model(nn_model, x_test, y_test):
+    print("-----------RESULTS ON FINAL VALIDATION SET-------------")
+    scores = model.evaluate(x_test, y_test)
+    print("\n%s: %.2f%%" % (model.metrics_names[1], scores[1]*100))
+    y_test_cat = np.argmax(np_utils.to_categorical(y_test), axis=1)[:,1]
+    y_pred = model.predict_classes(x_test)
 
-print("Precision, Recall, FScore, Support (Macro): ", precision_recall_fscore_support(y_test_cat, y_pred, average='macro'))
-print("Precision, Recall, FScore, Support (Micro): ", precision_recall_fscore_support(y_test_cat, y_pred, average='micro'))
-print("Precision, Recall, FScore, Support (by cat): ", precision_recall_fscore_support(y_test_cat, y_pred, average=None))
+    # print("Micro F Score: ", f1_score(y_test_cat, y_pred, average='micro'))
+    # print("Macro F Score: ", f1_score(y_test_cat, y_pred, average='macro'))
+    # print("Weighted F Score: ", f1_score(y_test_cat, y_pred, average='weighted'))
+    print("Precision, Recall, FScore, Support (Macro): ", precision_recall_fscore_support(y_test_cat, y_pred, average='macro'))
+    print("Precision, Recall, FScore, Support (Micro): ", precision_recall_fscore_support(y_test_cat, y_pred, average='micro'))
+    print("Precision, Recall, FScore, Support (by cat): ", precision_recall_fscore_support(y_test_cat, y_pred, average=None))
 
-print("Confusion Matrix: ", confusion_matrix(y_test_cat, y_pred))
+    print("Confusion Matrix: ", confusion_matrix(y_test_cat, y_pred))
+
+evaluate_model(model, X_test, Y_test)
